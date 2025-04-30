@@ -166,7 +166,8 @@ lib/aloha_maniskill_sim
 lib/models
 lib/aloha_urdf.zip
 lib/main_models.zip
-script/instruct-pix2pix
+resources
+results
 script/hfd_config.json
 input
 output

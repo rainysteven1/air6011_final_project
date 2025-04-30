@@ -1,6 +1,5 @@
-TASK ?= block_hammer_beat
-GPU  ?= 1
-IMAGE_NAME ?= robotwin:latest
+REPO ?= RoboTwin
+REPO_URL ?= https://github.com/TianxingChen/RoboTwin.git
 
 .PHONY: help sync upgrade
 
@@ -20,11 +19,11 @@ help:  ## Display targets with category headers
 ##@ Git Submodule
 
 add: ## Add submodule if not exists
-	git submodule add -b main https://github.com/TianxingChen/RoboTwin.git data/RoboTwin
+	git submodule add -f -b main $(REPO_URL) lib/$(REPO)
 
 remove:
-	git config -f .gitmodules --remove-section submodule."data/RoboTwin" 2>/dev/null || true && \
-	git rm --cached data/RoboTwin 2>/dev/null || true
+	git submodule deinit -f lib/$(REPO) && git rm -f lib/$(REPO) && \
+	git commit -m "delete $(REPO) submodule"
 
 sync: ## Synchronize Git submodules
 	git submodule update --init --recursive --remote
@@ -32,21 +31,80 @@ sync: ## Synchronize Git submodules
 upgrade: ## Upgrade Git submodules to the latest main branch
 	git submodule foreach 'git checkout main && git pull origin main --verbose'
 
+##@ Docker
+CMD_1 = cd ./GR-MG && bash goal_gen/train_ip2p.sh goal_gen/config/train.json
+CMD_2 = cd ./GR-MG && bash policy/main.sh policy/config/pretrain.json
+CMD_3 = cd ./GR-MG && bash policy/main.sh policy/config/train.json
+
+build:
+	docker build -t gr_mg:latest .
+
+run: ## Run GR-MG container (CMD=1: goal generation, CMD=2: policy pretraining, CMD=3: policy training)
+	@if [ -z "$(CMD)" ]; then \
+        echo "Error: Please specify a command (CMD=1|2|3)"; \
+        echo "  CMD=1: Train goal generation model (train_ip2p.sh)"; \
+        echo "  CMD=2: Policy pretraining (pretrain.json)"; \
+        echo "  CMD=3: Policy training (train.json)"; \
+        exit 1; \
+    fi
+	@if [ "$(CMD)" = "1" ]; then \
+        echo "Executing goal generation model training..."; \
+        COMMAND="$(CMD_1)"; \
+    elif [ "$(CMD)" = "2" ]; then \
+        echo "Executing policy pretraining..."; \
+        COMMAND="$(CMD_2)"; \
+    elif [ "$(CMD)" = "3" ]; then \
+        echo "Executing policy training..."; \
+        COMMAND="$(CMD_3)"; \
+    else \
+        echo "Error: Invalid CMD value: $(CMD)"; \
+        echo "Please use CMD=1|2|3"; \
+        exit 1; \
+    fi; \
+    docker run -it --rm --gpus all --name gr_mg \
+        --shm-size=8g \
+    	-v $$(pwd)/config/GR-MG/goal_gen/train.json:/app/GR-MG/goal_gen/config/train.json \
+    	-v $$(pwd)/config/GR-MG/policy/pretrain.json:/app/GR-MG/policy/config/pretrain.json \
+    	-v $$(pwd)/config/GR-MG/policy/train.json:/app/GR-MG/policy/config/train.json \
+    	-v $$(pwd)/data:/app/data \
+    	-v $$(pwd)/resources:/app/resources \
+    	-v $$(pwd)/results:/app/results \
+        -v /data/docker_tmp:/tmp \
+        -e PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128 \
+        -e PYTHONPATH=/app \
+    	-e PYTHONPATH=/app \
+    	gr_mg:latest /bin/bash -c "$$COMMAND"
+
 ##@ Download 
-download-IP2P: ## instruct-pix2pix
+MODEL1 = timbrooks/instruct-pix2pix
+MODEL2 = google-t5/t5-base
+
+download: ## Download instruct-pix2pix
+	@if [ -z "$(CMD)" ]; then \
+        echo "Error: Please specify a model to download (CMD=1|2)"; \
+        echo "  CMD=1: Download $(MODEL1)"; \
+        echo "  CMD=2: Download $(MODEL2)"; \
+        exit 1; \
+    fi
 	@if command -v jq >/dev/null 2>&1; then \
         USERNAME=$$(jq -r '.username' script/hfd_config.json); \
         TOKEN=$$(jq -r '.token' script/hfd_config.json); \
     else \
         USERNAME=$$(python -c "import json; print(json.load(open('script/hfd_config.json'))['username'])"); \
         TOKEN=$$(python -c "import json; print(json.load(open('script/hfd_config.json'))['token'])"); \
-    fi; \
-    cd script && ./hfd.sh timbrooks/instruct-pix2pix --hf_username $$USERNAME --hf_token $$TOKEN
+    fi
+	@if [ "$(CMD)" = "1" ]; then \
+        echo "Downloading $(MODEL1)..."; \
+        cd script && ./hfd.sh $(MODEL1) --hf_username $$USERNAME --hf_token $$TOKEN; \
+    elif [ "$(CMD)" = "2" ]; then \
+        echo "Downloading $(MODEL2)..."; \
+        cd script && ./hfd.sh $(MODEL2) --hf_username $$USERNAME --hf_token $$TOKEN; \
+    else \
+        echo "Error: Invalid CMD value: $(CMD)"; \
+        echo "Please use CMD=1|2"; \
+        exit 1; \
+    fi
 
 ##@ Script
-
-output-img:
+output-img: ## Extract RGB images from PKL files
 	python script/extract_pkl_img.py --input_dir /data/RoboTwin --output_dir /data/RoboTwin_output
-
-output-npy:
-	python script/extract_depth.py --input_dir /data/RoboTwin --output_dir /data/RoboTwin_output

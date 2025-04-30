@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -x
-GPUS_PER_NODE=8 # number of gpus per machine
-MASTER_ADDR={master_address}":"{port} # modify it with your own address and port
+GPUS_PER_NODE=2 # number of gpus per machine
+MASTER_ADDR="localhost:12345" # modify it with your own address and port
 NNODES=1 # number of machines
 JOB_ID=107
 torchrun \
