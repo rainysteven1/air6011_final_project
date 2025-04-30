@@ -1,4 +1,4 @@
-[submodule "data/RoboTwin"]
-	path = data/RoboTwin
-	url = git@github.com/TianxingChen/RoboTwin.git
-    branch = main
+[submodule "lib/RoboTwin"]
+	path = lib/RoboTwin
+	url = https://github.com/TianxingChen/RoboTwin.git
+	branch = main
