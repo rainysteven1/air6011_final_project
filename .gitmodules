@@ -1,4 +1,0 @@
-[submodule "lib/RoboTwin"]
-	path = lib/RoboTwin
-	url = https://github.com/TianxingChen/RoboTwin.git
-	branch = main
