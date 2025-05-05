@@ -16,3 +16,4 @@ pip install git+https://github.com/openai/CLIP.git
 pip3 install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu118
 pip3 install lightning==2.1.0
 pip3 install pytorch-lightning==2.1.0
+pip3 install wandb

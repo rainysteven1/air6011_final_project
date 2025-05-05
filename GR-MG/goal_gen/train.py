@@ -12,28 +12,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-import argparse
-import json
-from pathlib import Path
-import copy
-import numpy as np
-from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
-from lightning.pytorch.trainer import Trainer
-from lightning.pytorch.loggers import TensorBoardLogger
-from lightning.pytorch.strategies import DDPStrategy
+from data.roboTwin import RobotTwinDataset_Goalgen
 from lightning import seed_everything
-import torch
-import random
-from utils.utils import SetupCallback
-import datetime
-from data.calvindataset import CalvinDataset_Goalgen
+from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
+from lightning.pytorch.loggers import WandbLogger
+from lightning.pytorch.trainer import Trainer
+from lightning.pytorch.strategies import DDPStrategy
+from pathlib import Path
 from training.trainer import Goalgen_Trainer
 from torch.utils.data import DataLoader
+from utils.logger import CustomLogger
+from utils.utils import SetupCallback
+import argparse
+import copy
+import datetime
+import json
+import numpy as np
+import os
+import random
+import torch
 
 
-def get_date_str():
-    return str(datetime.date.today())
+def get_now_str():
+    return datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
 
 def init_setup_callback(config):
@@ -51,26 +52,80 @@ def init_trainer_config(configs):
     if "strategy" not in trainer_config or trainer_config["strategy"] == "ddp":
         trainer_config["strategy"] = DDPStrategy(find_unused_parameters=False)
     exp_name = configs["exp_name"]
+    version = get_now_str()
 
-    # init loggers
-    loggers = None
-    log_dir = os.path.join(get_date_str(), exp_name)
-    log_dir = os.path.join(configs["log_root"], log_dir)
+    log_dir = os.path.join(configs["log_root"], os.path.join(exp_name, version))
     configs["log_dir"] = log_dir
     Path(configs["log_dir"]).mkdir(parents=True, exist_ok=True)
-    loggers = []
-    loggers.append(
-        TensorBoardLogger(log_dir, name=exp_name)
-    )  # you can also add other loggers
+    custom_logger = CustomLogger(log_dir, name=exp_name, version=version)
+    loggers = [custom_logger]
+
+    if "wandb" in configs:
+        local_rank = int(os.environ.get("LOCAL_RANK", 0))
+
+        api_key = os.environ.get("WANDB_API_KEY")
+        if not api_key and not configs["wandb"].get("offline", False):
+            print(
+                "Warning: WANDB_API_KEY environment variable not found, running in offline mode"
+            )
+
+        if local_rank == 0:
+            try:
+                wandb_logger = WandbLogger(
+                    offline=configs["wandb"]["offline"],
+                    name=f"{exp_name}_{get_now_str().replace(' ', '_')}",
+                    version=version,
+                    project=configs["wandb"]["project"],
+                    entity=configs["wandb"]["entity"],
+                    save_dir=custom_logger.log_dir,
+                    log_model="all" if configs["wandb"]["log_model"] else False,
+                    tags=configs["wandb"]["tags"],
+                )
+                loggers.append(wandb_logger)
+                print(f"Wandb logger initialized successfully for process {local_rank}")
+
+                try:
+                    # 过滤掉复杂对象
+                    safe_config = {}
+                    for k, v in configs.items():
+                        if isinstance(v, (str, int, float, bool)) or v is None:
+                            safe_config[k] = v
+                        elif isinstance(v, (list, dict)):
+                            try:
+                                # 尝试 JSON 序列化测试
+                                json.dumps(v)
+                                safe_config[k] = v
+                            except Exception:
+                                safe_config[k] = str(v)
+                        else:
+                            safe_config[k] = str(v)
+
+                    wandb_logger.experiment.config.update(safe_config)
+                except Exception as e:
+                    print(f"Configuration update failed, but training continued: {e}")
+            except Exception as e:
+                print(f"Error initializing Wandb logger: {e}")
+                print("Continuing without Wandb logging")
+        else:
+            print(
+                f"Skipping Wandb initialization for non-main process (rank={local_rank})"
+            )
+
     trainer_config["logger"] = loggers
-    ckpt_dir = os.path.join(get_date_str(), exp_name)
-    ckpt_dir = os.path.join(configs["ckpt_root"], ckpt_dir)
+
+    ckpt_dir = os.path.join(configs["ckpt_root"], os.path.join(exp_name, version))
     configs["ckpt_dir"] = ckpt_dir
     Path(configs["ckpt_dir"]).mkdir(parents=True, exist_ok=True)
+
     trainer_config["callbacks"] = [
         init_setup_callback(configs),
         LearningRateMonitor(logging_interval="step"),
-        ModelCheckpoint(dirpath=ckpt_dir, save_top_k=-1, every_n_epochs=1),
+        ModelCheckpoint(
+            dirpath=ckpt_dir,
+            mode="min",
+            save_top_k=1,
+            filename="best-{epoch:02d}",
+        ),
     ]
     return trainer_config
 
@@ -84,6 +139,13 @@ def set_seed(seed=0):
 
 
 def experiment(variant):
+    if "wandb" in variant:
+        required_fields = ["project"]
+        for field in required_fields:
+            if field not in variant["wandb"]:
+                print(f"Warning: Required field '{field}' missing in wandb config")
+                variant["wandb"][field] = "GR-MG-Default"
+
     set_seed(variant["seed"])
     trainer_config = init_trainer_config(variant)
 
@@ -93,23 +155,25 @@ def experiment(variant):
     model = Goalgen_Trainer(variant)
 
     # dataset
-    train_data = CalvinDataset_Goalgen(
+    train_data = RobotTwinDataset_Goalgen(
+        ori_data_dir=variant["ori_data_dir"],
         data_dir=variant["data_dir"],
         resolution=256,
         resolution_before_crop=288,
         center_crop=False,
-        forward_n_min_max=[20, 22],
-        use_full=True,
+        forward_n_min_max=[5, 5],
+        use_full=False,
         is_training=True,
         color_aug=True,
     )
-    val_data = CalvinDataset_Goalgen(
+    val_data = RobotTwinDataset_Goalgen(
+        ori_data_dir=variant["ori_data_dir"],
         data_dir=variant["data_dir"],
         resolution=256,
         resolution_before_crop=288,
         center_crop=False,
-        forward_n_min_max=[20, 22],
-        use_full=True,
+        forward_n_min_max=[5, 5],
+        use_full=False,
         is_training=False,
         color_aug=False,
     )

@@ -159,7 +159,6 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-data
 bin
 log
 lib/aloha_maniskill_sim
@@ -176,3 +175,4 @@ output
 *.ckpt
 .idea
 __debug*
+wandb_key.txt
