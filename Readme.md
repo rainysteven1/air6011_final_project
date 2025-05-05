@@ -79,6 +79,16 @@ Train the goal generation model to predict goal states from current observations
 make run CMD=1
 ```
 
+## Evaluation Pipeline
+
+### Goal Generation Evaluation
+
+Evaluate the goal generation model:
+
+```bash
+make run CMD=2
+```
+
 ## Project Structure
 
 ```

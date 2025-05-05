@@ -39,6 +39,41 @@ def ssim(input_img, target_img):
     return metric(input_img, target_img)
 
 
+def load_large_checkpoint(ckpt_path, device="cpu", dtype=torch.bfloat16):
+    """使用内存映射高效加载大型检查点"""
+    # 使用memory_map模式避免将整个文件读入内存
+    checkpoint = torch.load(ckpt_path, map_location="cpu", mmap=True)
+
+    # 获取必要的state_dict部分
+    if "state_dict" in checkpoint:
+        if "unet" in checkpoint["state_dict"]:
+            unet_state_dict = checkpoint["state_dict"]["unet"]
+        else:
+            unet_state_dict = checkpoint["state_dict"]
+    else:
+        unet_state_dict = checkpoint
+
+    # 删除原始checkpoint释放内存
+    del checkpoint
+    gc.collect()
+
+    return unet_state_dict
+
+
+def load_and_apply_state_dict(model, state_dict, device, dtype):
+    """分块加载权重到模型"""
+    for key, value in tqdm(state_dict.items(), desc="Loading weights"):
+        # 对每个参数逐个处理
+        if key in model.state_dict():
+            # 转换到目标设备和精度
+            param = value.to(device=device, dtype=dtype, non_blocking=True)
+            model.state_dict()[key].copy_(param)
+            # 立即释放CPU内存
+            del param
+
+    return model
+
+
 class IP2PEvaluation(object):
     def __init__(self, config):
         # Init models
@@ -53,18 +88,12 @@ class IP2PEvaluation(object):
         )
         self.vae = AutoencoderKL.from_pretrained(pretrained_model_dir, subfolder="vae")
 
+        unet_state_dict = load_large_checkpoint(config["ckpt_path"])
         unet = UNet2DConditionModel.from_pretrained(
-            pretrained_model_dir, subfolder="unet"
+            pretrained_model_dir, subfolder="unet", device_map="auto"
         )
-        payload = torch.load(config["ckpt_path"])
-        unet.load_state_dict(payload["state_dict"]["unet_ema"], strict=True)
-        self.unet = unet.to(dtype=torch.bfloat16)
-
-        print("happy")
-
-        del payload
-        gc.collect()
-        torch.cuda.empty_cache()
+        load_and_apply_state_dict(unet, unet_state_dict, "cpu", torch.bfloat16)
+        self.unet = unet
 
         self.pipe = Pipeline.from_pretrained(
             pretrained_model_dir,
@@ -76,17 +105,15 @@ class IP2PEvaluation(object):
             variant=None,
             torch_dtype=torch.bfloat16,
         ).to(device)
+        if torch.__version__ >= "2.0.0":
+            self.pipe.unet = torch.compile(self.pipe.unet)
+            print("Model compiled for faster execution")
 
         self.eval_result_dir = os.path.join(config["result_root"], config["exp_name"])
 
         self.pipe.safety_checker = None
         self.pipe.requires_safety_checker = False
         self.generator = torch.Generator(device).manual_seed(config["seed"])
-
-        # Diffusion hyparams
-        self.num_inference_steps = 50
-        self.image_guidance_scale = 2.5
-        self.guidance_scale = 7.5
 
         # Image transform
         self.res = config["resolution"]
@@ -110,7 +137,7 @@ class IP2PEvaluation(object):
         all_ssim_values = []
         all_psnr_values = []
         sample_metrics = []
-        for i in tqdm(len(dataset)):
+        for i in tqdm(range(len(dataset))):
             example = dataset[i]
             text = example["input_text"]
             original_pixel_values = example["original_pixel_values"]
@@ -139,14 +166,17 @@ class IP2PEvaluation(object):
             original_image = np.clip(original_image, 0, 255)
             original_image = original_image.astype(np.uint8)
             ax[0].imshow(original_image)
+            ax[0].axis("off")
 
             edited_image = edited_pixel_values.permute(1, 2, 0).numpy()
             edited_image = (edited_image + 1) / 2 * 255
             edited_image = np.clip(edited_image, 0, 255)
             edited_image = edited_image.astype(np.uint8)
             ax[1].imshow(edited_image)
+            ax[1].axis("off")
 
             ax[2].imshow(predict_image[0])
+            ax[2].axis("off")
 
             save_dir = os.path.join(
                 self.eval_result_dir, example["episode"], f"{example['id']}_debug.png"
@@ -181,7 +211,7 @@ class IP2PEvaluation(object):
         edited_images = self.pipe(
             prompt=text_batch,
             image=input_images,
-            num_inference_steps=50,
+            num_inference_steps=20,
             image_guidance_scale=2.5,
             guidance_scale=7.5,
             generator=self.generator,
