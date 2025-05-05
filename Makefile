@@ -36,7 +36,7 @@ CMD_1 = cd ./GR-MG && bash goal_gen/train_ip2p.sh goal_gen/config/train.json
 CMD_2 = cd ./GR-MG && bash policy/main.sh policy/config/pretrain.json
 CMD_3 = cd ./GR-MG && bash policy/main.sh policy/config/train.json
 
-build:
+build: ## Build GR-MG container
 	docker build -t gr_mg:latest .
 
 run: ## Run GR-MG container (CMD=1: goal generation, CMD=2: policy pretraining, CMD=3: policy training)
@@ -106,6 +106,7 @@ download: ## Download Model
         echo "Please use CMD=1|2"; \
         exit 1; \
     fi
+
 
 ##@ Script
 output-img: ## Extract RGB images from PKL files
