@@ -65,8 +65,10 @@ class RobotTwinDataset_Goalgen(Dataset):
         self.resolution = resolution
         self.resolution_before_crop = resolution_before_crop
 
+        self.split_type = split_type
+
         # image preprocessing
-        if self.is_training:
+        if split_type == "training":
             self.transform = transforms.Compose(
                 [
                     transforms.Resize(
@@ -89,23 +91,55 @@ class RobotTwinDataset_Goalgen(Dataset):
         with open(meta_json, "r") as f:
             self.meta = json.load(f)
 
-        self.sample_tuples = []
+            task_episode_pairs = []
+
         for task, config in self.meta.items():
-            for episode, n_frames in config["num_frames"].items():
-                for frame_id in range(n_frames):
-                    if self.use_full:
-                        temp_max = 1
-                    else:
-                        temp_max = self.forward_n_max
-                    if (frame_id + temp_max) < n_frames:
-                        sample_tuple = (task, episode, frame_id, n_frames)
-                        self.sample_tuples.append(sample_tuple)
+            for episode in config["num_frames"].keys():
+                task_episode_pairs.append((task, episode))
+
+        # 2. 重新组织sample_tuples，使相同task的不同episode交错排列
+        self.sample_tuples = []
+
+        # 如果想打乱顺序但保持每个task轮流出现
+        # 首先按task分组
+        task_to_episodes = {}
+        for task, episode in task_episode_pairs:
+            if task not in task_to_episodes:
+                task_to_episodes[task] = []
+            task_to_episodes[task].append(episode)
+
+        # 然后对每个task的episodes列表进行随机打乱
+        for task in task_to_episodes:
+            random.shuffle(task_to_episodes[task])
+
+        # 获取所有task列表并随机打乱顺序
+        all_tasks = list(task_to_episodes.keys())
+        random.shuffle(all_tasks)
+
+        # 轮流从每个task中取一个episode，直到所有episodes都取完
+        max_episodes = max(len(episodes) for episodes in task_to_episodes.values())
+        for i in range(max_episodes):
+            for task in all_tasks:
+                episodes = task_to_episodes[task]
+                if i < len(episodes):
+                    episode = episodes[i]
+                    n_frames = self.meta[task]["num_frames"][episode]
+
+                    # 添加此task-episode下的所有有效frame
+                    for frame_id in range(n_frames):
+                        if self.use_full:
+                            temp_max = 1
+                        else:
+                            temp_max = self.forward_n_max
+                        if (frame_id + temp_max) < n_frames:
+                            sample_tuple = (task, episode, frame_id, n_frames)
+                            self.sample_tuples.append(sample_tuple)
 
     def __len__(self):
         return len(self.sample_tuples)
 
     def __getitem__(self, index):
-        if not self.is_training:
+        if self.split_type != "training":
             np.random.seed(index)
             random.seed(index)
 
@@ -167,7 +201,7 @@ class RobotTwinDataset_Goalgen(Dataset):
         saturation_range = random.uniform(0.8, 1.2)
         hue_range = random.uniform(-0.04, 0.04)
         if (
-            self.is_training and self.color_aug and random.random() > 0.4
+            self.split_type == "training" and self.color_aug and random.random() > 0.4
         ):  # apply color jitter with probability of 0.6
             self.color_trans = transforms.Compose(
                 [
@@ -203,6 +237,7 @@ class RobotTwinDataset_Goalgen(Dataset):
             "input_text": [edit_prompt],
             "original_pixel_values": input_image,
             "edited_pixel_values": edited_image,
+            "task": task,
             "episode": episode,
             "frame_id": frame_id,
         }

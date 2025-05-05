@@ -90,9 +90,9 @@ class IP2PEvaluation(object):
 
         unet_state_dict = load_large_checkpoint(config["ckpt_path"])
         unet = UNet2DConditionModel.from_pretrained(
-            pretrained_model_dir, subfolder="unet", device_map="auto"
+            pretrained_model_dir, subfolder="unet"
         )
-        load_and_apply_state_dict(unet, unet_state_dict, "cpu", torch.bfloat16)
+        load_and_apply_state_dict(unet, unet_state_dict, device, torch.bfloat16)
         self.unet = unet
 
         self.pipe = Pipeline.from_pretrained(
@@ -143,7 +143,8 @@ class IP2PEvaluation(object):
             original_pixel_values = example["original_pixel_values"]
             edited_pixel_values = example["edited_pixel_values"]
             input_image_batch = [original_pixel_values]
-            predict_image = self.inference(input_image_batch, text)
+            predict_images = self.inference(input_image_batch, text)
+            predict_image = predict_images[0]
 
             predict_tensor = (
                 torch.tensor(predict_image).permute(2, 0, 1).unsqueeze(0).float()
@@ -160,12 +161,17 @@ class IP2PEvaluation(object):
                 {"Sample_ID": i, "SSIM": ssim_value.item(), "PSNR": psnr_value.item()}
             )
 
-            _, ax = plt.subplots(1, 3)
+            _, ax = plt.subplots(1, 3, figsize=(15, 5))
+            plt.suptitle(
+                f"{example['task']}_{example['episode']}_{example['frame_id']}",
+                fontsize=12,
+            )
             original_image = original_pixel_values.permute(1, 2, 0).numpy()
             original_image = (original_image + 1) / 2 * 255
             original_image = np.clip(original_image, 0, 255)
             original_image = original_image.astype(np.uint8)
             ax[0].imshow(original_image)
+            ax[0].set_title("Input Image", fontsize=10)
             ax[0].axis("off")
 
             edited_image = edited_pixel_values.permute(1, 2, 0).numpy()
@@ -173,16 +179,37 @@ class IP2PEvaluation(object):
             edited_image = np.clip(edited_image, 0, 255)
             edited_image = edited_image.astype(np.uint8)
             ax[1].imshow(edited_image)
+            ax[1].set_title("Ground Truth", fontsize=10)
             ax[1].axis("off")
 
-            ax[2].imshow(predict_image[0])
+            ax[2].imshow(predict_image)
+            ax[2].set_title("Prediction", fontsize=10)
+            plt.annotate(
+                f"SSIM: {ssim_value.item():.4f}, PSNR: {psnr_value.item():.2f}dB",
+                xy=(0.5, -0.03),
+                xycoords=ax[2].transAxes,
+                ha="center",
+                fontsize=8,
+            )
             ax[2].axis("off")
 
             save_dir = os.path.join(
-                self.eval_result_dir, example["episode"], f"{example['id']}_debug.png"
+                self.eval_result_dir, example["task"], example["episode"]
             )
-            plt.savefig(save_dir, dpi=300)
+            os.makedirs(save_dir, exist_ok=True)
+            plt.savefig(
+                os.path.join(
+                    save_dir,
+                    f"{example['frame_id']}_debug.png",
+                ),
+                dpi=300,
+            )
             plt.close()
+
+            np_img = predict_image.cpu().numpy().astype(np.uint8)
+            Image.fromarray(np_img).save(
+                os.path.join(save_dir, f"{example['frame_id']}_prediction.png")
+            )
 
         df = pd.DataFrame(sample_metrics)
         df.to_csv(os.path.join(self.eval_result_dir, "metrics.csv"), index=False)
