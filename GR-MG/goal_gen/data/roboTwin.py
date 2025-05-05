@@ -13,7 +13,6 @@
 # limitations under the License.
 from PIL import Image, UnidentifiedImageError
 from torch.utils.data import Dataset
-from tqdm import tqdm
 import numpy as np
 import json
 import os
@@ -52,18 +51,14 @@ class RobotTwinDataset_Goalgen(Dataset):
         center_crop=False,
         forward_n_min_max=[5, 5],
         use_full=True,
-        is_training=True,
+        split_type="training",
         color_aug=False,
     ):
         super().__init__()
-        self.is_training = is_training
         self.color_aug = color_aug  # whether to use ColorJitter
         self.center_crop = center_crop  # whether to use CenterCrop
         self.ori_data_dir = ori_data_dir
-        if is_training:
-            self.data_dir = os.path.join(data_dir, "training")
-        else:
-            self.data_dir = os.path.join(data_dir, "validation")
+        self.data_dir = os.path.join(data_dir, split_type)
 
         self.forward_n_min, self.forward_n_max = forward_n_min_max
         self.use_full = use_full  # whether to use every frame in a trajectory
@@ -204,34 +199,10 @@ class RobotTwinDataset_Goalgen(Dataset):
         input_image = input_image.reshape(3, self.resolution, self.resolution)
         edited_image = edited_image.reshape(3, self.resolution, self.resolution)
 
-        example = dict()
-        example["input_text"] = [edit_prompt]
-        example["original_pixel_values"] = input_image
-        example["edited_pixel_values"] = edited_image
-        index = int((frame_id + 1) / n_frames * 10)
-        if index == 10:
-            index = 9
-        example["progress"] = index
-        return example
-
-
-if __name__ == "__main__":
-    dataset = RobotTwinDataset_Goalgen(
-        ori_data_dir="/data/FinalProject/RoboTwin_output",
-        data_dir="/data/FinalProject/RoboTwin_format",
-        resolution=256,
-        resolution_before_crop=288,
-        center_crop=True,
-        forward_n_min_max=(20, 22),
-        is_training=True,
-        use_full=False,
-        color_aug=True,
-    )
-
-    for i in tqdm(range(13736, len(dataset), 1)):
-        example = dataset[i]
-        original_pixel_values = example["original_pixel_values"]
-        edited_pixel_values = example["edited_pixel_values"]
-        progress = example["progress"]
-        text = example["input_text"]
-        print(text)
+        return {
+            "input_text": [edit_prompt],
+            "original_pixel_values": input_image,
+            "edited_pixel_values": edited_image,
+            "episode": episode,
+            "frame_id": frame_id,
+        }

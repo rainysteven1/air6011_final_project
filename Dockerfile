@@ -4,4 +4,4 @@ WORKDIR /app
 
 COPY ./GR-MG /app/GR-MG
 
-RUN sh /app/GR-MG/goal_gen/install.sh && sh /app/GR-MG/policy/install.sh
+RUN sh /app/GR-MG/goal_gen/install.sh

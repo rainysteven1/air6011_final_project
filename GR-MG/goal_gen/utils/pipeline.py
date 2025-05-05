@@ -14,14 +14,17 @@
 
 #  modified from https://github.com/huggingface/diffusers/blob/main/src/diffusers/pipelines/stable_diffusion/pipeline_stable_diffusion_instruct_pix2pix.py
 from diffusers import StableDiffusionInstructPix2PixPipeline
+from diffusers.models.embeddings import ImageProjection
 from diffusers.pipelines.stable_diffusion import StableDiffusionPipelineOutput
+from diffusers.utils import deprecate
 from typing import Callable, Dict, List, Optional, Union
-import numpy as np
 import torch
 
 
 def retrieve_latents(
-    encoder_output: torch.Tensor, generator: Optional[torch.Generator] = None, sample_mode: str = "sample"
+    encoder_output: torch.Tensor,
+    generator: Optional[torch.Generator] = None,
+    sample_mode: str = "sample",
 ):
     if hasattr(encoder_output, "latent_dist") and sample_mode == "sample":
         return encoder_output.latent_dist.sample(generator)
@@ -32,11 +35,13 @@ def retrieve_latents(
     else:
         raise AttributeError("Could not access latents of provided encoder_output")
 
+
 class Pipeline(StableDiffusionInstructPix2PixPipeline):
     model_cpu_offload_seq = "text_encoder->unet->vae"
     _optional_components = ["safety_checker", "feature_extractor", "image_encoder"]
     _exclude_from_cpu_offload = ["safety_checker"]
     _callback_tensor_inputs = ["latents", "prompt_embeds", "image_latents"]
+
     def __init__(
         self,
         vae,
@@ -57,7 +62,7 @@ class Pipeline(StableDiffusionInstructPix2PixPipeline):
             scheduler,
             safety_checker,
             feature_extractor,
-            )
+        )
 
     @torch.no_grad()
     def _encode_prompt(
@@ -114,24 +119,23 @@ class Pipeline(StableDiffusionInstructPix2PixPipeline):
                 return_tensors="pt",
             )
 
-
-
             text_input_ids = text_inputs.input_ids
-            untruncated_ids = self.tokenizer(prompt, padding="longest", return_tensors="pt").input_ids
+            untruncated_ids = self.tokenizer(
+                prompt, padding="longest", return_tensors="pt"
+            ).input_ids
 
-            if untruncated_ids.shape[-1] >= text_input_ids.shape[-1] and not torch.equal(
-                text_input_ids, untruncated_ids
-            ):
+            if untruncated_ids.shape[-1] >= text_input_ids.shape[
+                -1
+            ] and not torch.equal(text_input_ids, untruncated_ids):
                 removed_text = self.tokenizer.batch_decode(
                     untruncated_ids[:, self.tokenizer.model_max_length - 1 : -1]
                 )
-                logger.warning(
+                print(
                     "The following part of your input was truncated because CLIP can only handle sequences up to"
                     f" {self.tokenizer.model_max_length} tokens: {removed_text}"
                 )
 
             attention_mask = text_inputs.attention_mask.to(device)
- 
 
             prompt_embeds = self.text_encoder(
                 text_input_ids.to(device),
@@ -144,7 +148,9 @@ class Pipeline(StableDiffusionInstructPix2PixPipeline):
         bs_embed, seq_len, _ = prompt_embeds.shape
         # duplicate text embeddings for each generation per prompt, using mps friendly method
         prompt_embeds = prompt_embeds.repeat(1, num_images_per_prompt, 1)
-        prompt_embeds = prompt_embeds.view(bs_embed * num_images_per_prompt, seq_len, -1)
+        prompt_embeds = prompt_embeds.view(
+            bs_embed * num_images_per_prompt, seq_len, -1
+        )
 
         # get unconditional embeddings for classifier free guidance
         if do_classifier_free_guidance and negative_prompt_embeds is None:
@@ -181,7 +187,6 @@ class Pipeline(StableDiffusionInstructPix2PixPipeline):
             )
 
             attention_mask = uncond_input.attention_mask.to(device)
-      
 
             negative_prompt_embeds = self.text_encoder(
                 uncond_input.input_ids.to(device),
@@ -193,25 +198,32 @@ class Pipeline(StableDiffusionInstructPix2PixPipeline):
             # duplicate unconditional embeddings for each generation per prompt, using mps friendly method
             seq_len = negative_prompt_embeds.shape[1]
 
-            negative_prompt_embeds = negative_prompt_embeds.to(dtype=self.text_encoder.dtype, device=device)
+            negative_prompt_embeds = negative_prompt_embeds.to(
+                dtype=self.text_encoder.dtype, device=device
+            )
 
-            negative_prompt_embeds = negative_prompt_embeds.repeat(1, num_images_per_prompt, 1)
-            negative_prompt_embeds = negative_prompt_embeds.view(batch_size * num_images_per_prompt, seq_len, -1)
+            negative_prompt_embeds = negative_prompt_embeds.repeat(
+                1, num_images_per_prompt, 1
+            )
+            negative_prompt_embeds = negative_prompt_embeds.view(
+                batch_size * num_images_per_prompt, seq_len, -1
+            )
 
             # For classifier free guidance, we need to do two forward passes.
             # Here we concatenate the unconditional and text embeddings into a single batch
             # to avoid doing two forward passes
             # pix2pix has two negative embeddings, and unlike in other pipelines latents are ordered [prompt_embeds, negative_prompt_embeds, negative_prompt_embeds]
-            prompt_embeds = torch.cat([prompt_embeds, negative_prompt_embeds, negative_prompt_embeds])
+            prompt_embeds = torch.cat(
+                [prompt_embeds, negative_prompt_embeds, negative_prompt_embeds]
+            )
 
         return prompt_embeds
 
-    
     @torch.no_grad()
     def __call__(
         self,
         prompt: Union[str, List[str]] = None,
-        image =None,
+        image=None,
         num_inference_steps: int = 100,
         guidance_scale: float = 7.5,
         image_guidance_scale: float = 1.5,
@@ -222,14 +234,13 @@ class Pipeline(StableDiffusionInstructPix2PixPipeline):
         latents: Optional[torch.FloatTensor] = None,
         prompt_embeds: Optional[torch.FloatTensor] = None,
         negative_prompt_embeds: Optional[torch.FloatTensor] = None,
-        ip_adapter_image= None,
+        ip_adapter_image=None,
         output_type: Optional[str] = "pil",
         return_dict: bool = True,
         callback_on_step_end: Optional[Callable[[int, int, Dict], None]] = None,
         callback_on_step_end_tensor_inputs: List[str] = ["latents"],
         **kwargs,
     ):
-
         callback = kwargs.pop("callback", None)
         callback_steps = kwargs.pop("callback_steps", None)
 
@@ -261,12 +272,18 @@ class Pipeline(StableDiffusionInstructPix2PixPipeline):
         device = self._execution_device
 
         if ip_adapter_image is not None:
-            output_hidden_state = False if isinstance(self.unet.encoder_hid_proj, ImageProjection) else True
+            output_hidden_state = (
+                False
+                if isinstance(self.unet.encoder_hid_proj, ImageProjection)
+                else True
+            )
             image_embeds, negative_image_embeds = self.encode_image(
                 ip_adapter_image, device, num_images_per_prompt, output_hidden_state
             )
             if self.do_classifier_free_guidance:
-                image_embeds = torch.cat([image_embeds, negative_image_embeds, negative_image_embeds])
+                image_embeds = torch.cat(
+                    [image_embeds, negative_image_embeds, negative_image_embeds]
+                )
 
         if image is None:
             raise ValueError("`image` input cannot be undefined.")
@@ -294,10 +311,8 @@ class Pipeline(StableDiffusionInstructPix2PixPipeline):
             prompt_embeds=prompt_embeds,
             negative_prompt_embeds=negative_prompt_embeds,
         )
-    
-    
-        
-        length=prompt_embeds.shape[0]
+
+        length = prompt_embeds.shape[0]
 
         # 3. Preprocess image
         image = self.image_processor.preprocess(image)
@@ -340,7 +355,7 @@ class Pipeline(StableDiffusionInstructPix2PixPipeline):
                 f"Incorrect configuration settings! The config of `pipeline.unet`: {self.unet.config} expects"
                 f" {self.unet.config.in_channels} but received `num_channels_latents`: {num_channels_latents} +"
                 f" `num_channels_image`: {num_channels_image} "
-                f" = {num_channels_latents+num_channels_image}. Please verify the config of"
+                f" = {num_channels_latents + num_channels_image}. Please verify the config of"
                 " `pipeline.unet` or your `image` input."
             )
 
@@ -348,7 +363,9 @@ class Pipeline(StableDiffusionInstructPix2PixPipeline):
         extra_step_kwargs = self.prepare_extra_step_kwargs(generator, eta)
 
         # 8.1 Add image embeds for IP-Adapter
-        added_cond_kwargs = {"image_embeds": image_embeds} if ip_adapter_image is not None else None
+        added_cond_kwargs = (
+            {"image_embeds": image_embeds} if ip_adapter_image is not None else None
+        )
 
         # 9. Denoising loop
         num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
@@ -358,11 +375,19 @@ class Pipeline(StableDiffusionInstructPix2PixPipeline):
                 # Expand the latents if we are doing classifier free guidance.
                 # The latents are expanded 3 times because for pix2pix the guidance\
                 # is applied for both the text and the input image.
-                latent_model_input = torch.cat([latents] * 3) if self.do_classifier_free_guidance else latents
+                latent_model_input = (
+                    torch.cat([latents] * 3)
+                    if self.do_classifier_free_guidance
+                    else latents
+                )
 
                 # concat latents, image_latents in the channel dimension
-                scaled_latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
-                scaled_latent_model_input = torch.cat([scaled_latent_model_input, image_latents], dim=1)
+                scaled_latent_model_input = self.scheduler.scale_model_input(
+                    latent_model_input, t
+                )
+                scaled_latent_model_input = torch.cat(
+                    [scaled_latent_model_input, image_latents], dim=1
+                )
 
                 # predict the noise residual
                 noise_pred = self.unet(
@@ -384,11 +409,14 @@ class Pipeline(StableDiffusionInstructPix2PixPipeline):
 
                 # perform guidance
                 if self.do_classifier_free_guidance:
-                    noise_pred_text, noise_pred_image, noise_pred_uncond = noise_pred.chunk(3)
+                    noise_pred_text, noise_pred_image, noise_pred_uncond = (
+                        noise_pred.chunk(3)
+                    )
                     noise_pred = (
                         noise_pred_uncond
                         + self.guidance_scale * (noise_pred_text - noise_pred_image)
-                        + self.image_guidance_scale * (noise_pred_image - noise_pred_uncond)
+                        + self.image_guidance_scale
+                        * (noise_pred_image - noise_pred_uncond)
                     )
 
                 # Hack:
@@ -401,7 +429,9 @@ class Pipeline(StableDiffusionInstructPix2PixPipeline):
                     noise_pred = (noise_pred - latents) / (-sigma)
 
                 # compute the previous noisy sample x_t -> x_t-1
-                latents = self.scheduler.step(noise_pred, t, latents, **extra_step_kwargs, return_dict=False)[0]
+                latents = self.scheduler.step(
+                    noise_pred, t, latents, **extra_step_kwargs, return_dict=False
+                )[0]
 
                 if callback_on_step_end is not None:
                     callback_kwargs = {}
@@ -411,19 +441,27 @@ class Pipeline(StableDiffusionInstructPix2PixPipeline):
 
                     latents = callback_outputs.pop("latents", latents)
                     prompt_embeds = callback_outputs.pop("prompt_embeds", prompt_embeds)
-                    negative_prompt_embeds = callback_outputs.pop("negative_prompt_embeds", negative_prompt_embeds)
+                    negative_prompt_embeds = callback_outputs.pop(
+                        "negative_prompt_embeds", negative_prompt_embeds
+                    )
                     image_latents = callback_outputs.pop("image_latents", image_latents)
 
                 # call the callback, if provided
-                if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
+                if i == len(timesteps) - 1 or (
+                    (i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0
+                ):
                     progress_bar.update()
                     if callback is not None and i % callback_steps == 0:
                         step_idx = i // getattr(self.scheduler, "order", 1)
                         callback(step_idx, t, latents)
 
         if not output_type == "latent":
-            image = self.vae.decode(latents / self.vae.config.scaling_factor, return_dict=False)[0]
-            image, has_nsfw_concept = self.run_safety_checker(image, device, prompt_embeds.dtype)
+            image = self.vae.decode(
+                latents / self.vae.config.scaling_factor, return_dict=False
+            )[0]
+            image, has_nsfw_concept = self.run_safety_checker(
+                image, device, prompt_embeds.dtype
+            )
         else:
             image = latents
             has_nsfw_concept = None
@@ -433,7 +471,9 @@ class Pipeline(StableDiffusionInstructPix2PixPipeline):
         else:
             do_denormalize = [not has_nsfw for has_nsfw in has_nsfw_concept]
 
-        image = self.image_processor.postprocess(image, output_type=output_type, do_denormalize=do_denormalize)
+        image = self.image_processor.postprocess(
+            image, output_type=output_type, do_denormalize=do_denormalize
+        )
 
         # Offload all models
         self.maybe_free_model_hooks()
@@ -441,5 +481,6 @@ class Pipeline(StableDiffusionInstructPix2PixPipeline):
         if not return_dict:
             return (image, has_nsfw_concept)
 
-        return StableDiffusionPipelineOutput(images=image, nsfw_content_detected=has_nsfw_concept)
-
+        return StableDiffusionPipelineOutput(
+            images=image, nsfw_content_detected=has_nsfw_concept
+        )

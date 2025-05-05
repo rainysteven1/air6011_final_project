@@ -131,6 +131,9 @@ class Goalgen_Trainer(pl.LightningModule):
                 dataset=self.configs["dataset_name"],
             )
 
+    def test_step(self):
+        pass
+
     def on_save_checkpoint(self, checkpoint):
         if not self.use_ema:
             checkpoint["state_dict"] = {"unet": self.model.unet.state_dict()}
