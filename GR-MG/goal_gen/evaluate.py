@@ -206,8 +206,7 @@ class IP2PEvaluation(object):
             )
             plt.close()
 
-            np_img = predict_image.cpu().numpy().astype(np.uint8)
-            Image.fromarray(np_img).save(
+            Image.fromarray(predict_image.astype(np.uint8)).save(
                 os.path.join(save_dir, f"{example['frame_id']}_prediction.png")
             )
 
