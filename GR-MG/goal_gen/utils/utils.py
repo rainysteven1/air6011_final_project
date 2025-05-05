@@ -14,7 +14,6 @@
 
 import os
 from lightning.pytorch.callbacks import Callback
-import json
 
 
 class SetupCallback(Callback):
@@ -29,4 +28,3 @@ class SetupCallback(Callback):
             # Create logdirs and save configs
             os.makedirs(self.logdir, exist_ok=True)
             os.makedirs(self.ckptdir, exist_ok=True)
-

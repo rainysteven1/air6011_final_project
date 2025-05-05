@@ -11,12 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from model.model import IP2P
+from utils.dist_train import get_rank
+from utils.ema import requires_grad, update_ema
 import torch
 import torch.nn.functional as F
 import lightning.pytorch as pl
-from utils.ema import requires_grad, update_ema
-from utils.dist_train import get_rank
-from model.model import IP2P
 
 
 class Goalgen_Trainer(pl.LightningModule):
@@ -27,7 +27,6 @@ class Goalgen_Trainer(pl.LightningModule):
         self.configs = configs
         self._initialize()
         self.save_hyperparameters()
-        self.dataset_name = "calvin"
 
     @staticmethod
     def _main_rank_print(*args, **kwargs):
@@ -99,6 +98,21 @@ class Goalgen_Trainer(pl.LightningModule):
                 log_name = f"{dataset}_{log_name}"
             self.log(log_name, v, prog_bar=True, **kwargs)
 
+    def training_step(self, batch, batch_idx):
+        prediction, target = self.model.forward(batch)
+        loss = F.mse_loss(prediction.float(), target.float(), reduction="mean")
+        output = {"loss": loss}
+        self._log_output(
+            output,
+            phase="train",
+            on_epoch=False,
+            on_step=True,
+            dataset=self.configs["dataset_name"],
+        )
+        if self.configs["use_ema"]:
+            update_ema(self.ema_model, self.model, decay=0.999)
+        return output["loss"]
+
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
         with torch.no_grad():
             if self.use_ema:
@@ -114,23 +128,8 @@ class Goalgen_Trainer(pl.LightningModule):
                 sync_dist=True,
                 on_epoch=True,
                 on_step=False,
-                dataset=self.dataset_name,
+                dataset=self.configs["dataset_name"],
             )
-
-    def training_step(self, batch, batch_idx):
-        prediction, target = self.model.forward(batch)
-        loss = F.mse_loss(prediction.float(), target.float(), reduction="mean")
-        output = {"loss": loss}
-        self._log_output(
-            output,
-            phase="train",
-            on_epoch=False,
-            on_step=True,
-            dataset=self.dataset_name,
-        )
-        if self.configs["use_ema"]:
-            update_ema(self.ema_model, self.model, decay=0.999)
-        return output["loss"]
 
     def on_save_checkpoint(self, checkpoint):
         if not self.use_ema:

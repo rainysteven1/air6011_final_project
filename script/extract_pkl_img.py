@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 from concurrent.futures import ProcessPoolExecutor
 from PIL import Image
 from tqdm import tqdm
@@ -9,18 +10,18 @@ import pickle
 
 
 def process_pkl_file(pkl_path, output_base_dir):
-    """处理单个PKL文件，按任务和相机类型分类提取RGB图像"""
+    """Process a single PKL file, extract RGB images classified by task and camera type"""
     try:
-        # 从PKL文件路径中提取任务、episode和索引信息
+        # Extract task, episode, and index information from the PKL file path
         file_name = os.path.basename(pkl_path)
         index = file_name.split(".")[0]
         episode_dir = os.path.basename(os.path.dirname(pkl_path))
 
-        # 获取任务名称 (目录格式为 task_name_pkl)
+        # Get task name (directory format is task_name_pkl)
         task_dir = os.path.dirname(os.path.dirname(pkl_path))
         task_name = os.path.basename(task_dir).replace("_pkl", "")
 
-        # 创建输出目录结构: 任务名/相机类型/episode/
+        # Create output directory structure: task_name/camera_type/episode/
         camera_dirs = {
             "head": os.path.join(
                 output_base_dir, task_name, "head_camera", episode_dir
@@ -39,11 +40,11 @@ def process_pkl_file(pkl_path, output_base_dir):
         for d in camera_dirs.values():
             os.makedirs(d, exist_ok=True)
 
-        # 加载PKL文件
+        # Load PKL file
         with open(pkl_path, "rb") as f:
             data = pickle.load(f)
 
-        # 保存所有摄像头的RGB图像
+        # Save RGB images from all cameras
         for cam_name, dir_key in zip(
             ["head_camera", "front_camera", "left_camera", "right_camera"],
             ["head", "front", "left", "right"],
@@ -55,15 +56,15 @@ def process_pkl_file(pkl_path, output_base_dir):
                 rgb = data["observation"][cam_name]["rgb"]
                 output_path = os.path.join(camera_dirs[dir_key], f"{index}.png")
 
-                # 检查是否为合法RGB图像
+                # Check if it's a valid RGB image
                 if rgb.shape[2] == 3:
-                    # 转换为PIL图像并保存
+                    # Convert to PIL image and save
                     if np.max(rgb) <= 1.0:
-                        # 是[0,1]范围，转换为[0,255]
+                        # Range [0,1], convert to [0,255]
                         rgb_uint8 = (rgb * 255).clip(0, 255).astype(np.uint8)
                         img = Image.fromarray(rgb_uint8)
                     else:
-                        # 已经是uint8格式[0,255]
+                        # Already in uint8 format [0,255]
                         img = Image.fromarray(rgb.astype(np.uint8))
 
                     img.save(output_path)
@@ -76,45 +77,52 @@ def process_pkl_file(pkl_path, output_base_dir):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="按任务和摄像头视角提取RoboTwin PKL文件中的RGB图像"
+        description="Extract RGB images from RoboTwin PKL files by task and camera view"
     )
     parser.add_argument(
-        "--input_dir", type=str, required=True, help="包含PKL文件的数据目录"
+        "--input_dir",
+        type=str,
+        required=True,
+        help="Data directory containing PKL files",
     )
-    parser.add_argument("--output_dir", type=str, required=True, help="RGB图像输出目录")
-    parser.add_argument("--num_workers", type=int, default=8, help="并行工作进程数")
+    parser.add_argument(
+        "--output_dir", type=str, required=True, help="Output directory for RGB images"
+    )
+    parser.add_argument(
+        "--num_workers", type=int, default=8, help="Number of parallel worker processes"
+    )
     args = parser.parse_args()
 
-    # 找到所有PKL文件，并按任务分类
+    # Find all PKL files, classified by task
     task_dirs = glob.glob(os.path.join(args.input_dir, "*_pkl"))
     pkl_files = []
 
-    print(f"找到 {len(task_dirs)} 个任务目录")
+    print(f"Found {len(task_dirs)} task directories")
 
     for task_dir in task_dirs:
         task_pkls = glob.glob(os.path.join(task_dir, "episode*", "*.pkl"))
         pkl_files.extend(task_pkls)
         task_name = os.path.basename(task_dir).replace("_pkl", "")
-        print(f"任务 '{task_name}' 包含 {len(task_pkls)} 个PKL文件")
+        print(f"Task '{task_name}' contains {len(task_pkls)} PKL files")
 
-    print(f"总共找到 {len(pkl_files)} 个PKL文件需要处理")
+    print(f"Total of {len(pkl_files)} PKL files to process")
 
-    # 创建输出目录
+    # Create output directory
     os.makedirs(args.output_dir, exist_ok=True)
 
-    # 并行处理所有PKL文件
+    # Process all PKL files in parallel
     with ProcessPoolExecutor(max_workers=args.num_workers) as executor:
         futures = [
             executor.submit(process_pkl_file, f, args.output_dir) for f in pkl_files
         ]
 
-        # 显示进度条
+        # Show progress bar
         success_count = 0
-        for future in tqdm(futures, total=len(pkl_files), desc="提取图像"):
+        for future in tqdm(futures, total=len(pkl_files), desc="Extracting images"):
             if future.result():
                 success_count += 1
 
-    print(f"完成! 成功处理 {success_count}/{len(pkl_files)} 个文件")
+    print(f"Complete! Successfully processed {success_count}/{len(pkl_files)} files")
 
 
 if __name__ == "__main__":

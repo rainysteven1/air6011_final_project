@@ -36,7 +36,7 @@ CMD_1 = cd ./GR-MG && bash goal_gen/train_ip2p.sh goal_gen/config/train.json
 CMD_2 = cd ./GR-MG && bash policy/main.sh policy/config/pretrain.json
 CMD_3 = cd ./GR-MG && bash policy/main.sh policy/config/train.json
 
-build:
+build: ## Build GR-MG container
 	docker build -t gr_mg:latest .
 
 run: ## Run GR-MG container (CMD=1: goal generation, CMD=2: policy pretraining, CMD=3: policy training)
@@ -61,25 +61,27 @@ run: ## Run GR-MG container (CMD=1: goal generation, CMD=2: policy pretraining, 
         echo "Please use CMD=1|2|3"; \
         exit 1; \
     fi; \
-    docker run -it --rm --gpus all --name gr_mg \
+    docker run -d --rm --gpus all --name gr_mg \
         --shm-size=8g \
     	-v $$(pwd)/config/GR-MG/goal_gen/train.json:/app/GR-MG/goal_gen/config/train.json \
     	-v $$(pwd)/config/GR-MG/policy/pretrain.json:/app/GR-MG/policy/config/pretrain.json \
     	-v $$(pwd)/config/GR-MG/policy/train.json:/app/GR-MG/policy/config/train.json \
-    	-v $$(pwd)/data:/app/data \
     	-v $$(pwd)/resources:/app/resources \
-    	-v $$(pwd)/results:/app/results \
+        -v /data/FinalProject/data:/app/data \
+    	-v /data/FinalProject/results:/app/results \
         -v /data/docker_tmp:/tmp \
+        -e WANDB_API_KEY=$$(cat wandb_key.txt) \
+        -e WANDB_CONSOLE=wrap \
+        -e WANDB_START_METHOD=thread \
         -e PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128 \
         -e PYTHONPATH=/app \
-    	-e PYTHONPATH=/app \
     	gr_mg:latest /bin/bash -c "$$COMMAND"
 
 ##@ Download 
 MODEL1 = timbrooks/instruct-pix2pix
 MODEL2 = google-t5/t5-base
 
-download: ## Download instruct-pix2pix
+download: ## Download Model
 	@if [ -z "$(CMD)" ]; then \
         echo "Error: Please specify a model to download (CMD=1|2)"; \
         echo "  CMD=1: Download $(MODEL1)"; \
@@ -105,6 +107,17 @@ download: ## Download instruct-pix2pix
         exit 1; \
     fi
 
+
 ##@ Script
 output-img: ## Extract RGB images from PKL files
-	python script/extract_pkl_img.py --input_dir /data/RoboTwin --output_dir /data/RoboTwin_output
+	python script/extract_pkl_img.py --input_dir /data/RoboTwin --output_dir /data/FinalProject/data/RoboTwin_output
+
+output-dataset: ## Output Dataset
+	python script/format_data.py --input_dir /data/FinalProject/data/RoboTwin_output \
+                     --output_dir /data/FinalProject/data/RoboTwin_format \
+                     --workers 16 \
+                     --batch_size 8 \
+                     --buffer_size 100
+                     
+output-meta: ## Output meta.json
+	python script/output_meta.py --input_dir /data/FinalProject/data/RoboTwin_format --train_samples 20 --val_samples 5

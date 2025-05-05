@@ -37,6 +37,7 @@ def main(data_dir, target_dir, num_trajs_per_task=10000):
             os.path.join(dataset_dir, "lang_annotations", "auto_lang_ann.npy"),
             allow_pickle=True,
         ).item()
+        # print("anns:", anns)
         n_trajs = len(anns["info"]["indx"])
         task_dict = {}
         for traj_idx in tqdm(range(n_trajs)):
@@ -76,9 +77,19 @@ def main(data_dir, target_dir, num_trajs_per_task=10000):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("-d", "--data_dir", type=str, default="", help="data directory")
     parser.add_argument(
-        "-t", "--target_dir", type=str, default="", help="target data directory"
+        "-d",
+        "--data_dir",
+        type=str,
+        default="",
+        help="data directory",
+    )
+    parser.add_argument(
+        "-t",
+        "--target_dir",
+        type=str,
+        default="",
+        help="target data directory",
     )
     parser.add_argument(
         "-n",
