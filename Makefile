@@ -33,8 +33,7 @@ upgrade: ## Upgrade Git submodules to the latest main branch
 
 ##@ Docker
 CMD_1 = cd ./GR-MG && bash goal_gen/train_ip2p.sh goal_gen/config/train.json
-CMD_2 = cd ./GR-MG && bash policy/main.sh policy/config/pretrain.json
-CMD_3 = cd ./GR-MG && bash policy/main.sh policy/config/train.json
+CMD_2 = cd ./GR-MG && bash goal_gen/evaluate_ip2p.sh goal_gen/config/evaluate.json
 
 build: ## Build GR-MG container
 	docker build -t gr_mg:latest .
@@ -53,16 +52,13 @@ run: ## Run GR-MG container (CMD=1: goal generation, CMD=2: policy pretraining, 
     elif [ "$(CMD)" = "2" ]; then \
         echo "Executing policy pretraining..."; \
         COMMAND="$(CMD_2)"; \
-    elif [ "$(CMD)" = "3" ]; then \
-        echo "Executing policy training..."; \
-        COMMAND="$(CMD_3)"; \
     else \
         echo "Error: Invalid CMD value: $(CMD)"; \
         echo "Please use CMD=1|2|3"; \
         exit 1; \
     fi; \
-    docker run -d --rm --gpus all --name gr_mg \
-        --shm-size=8g \
+    docker run -it --rm --gpus all --name gr_mg \
+        --shm-size=16g \
     	-v $$(pwd)/config/GR-MG/goal_gen/train.json:/app/GR-MG/goal_gen/config/train.json \
     	-v $$(pwd)/config/GR-MG/policy/pretrain.json:/app/GR-MG/policy/config/pretrain.json \
     	-v $$(pwd)/config/GR-MG/policy/train.json:/app/GR-MG/policy/config/train.json \

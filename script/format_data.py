@@ -133,7 +133,7 @@ def main():
     )
     args = parser.parse_args()
 
-    split_types = ["training", "validation"]
+    split_types = ["test", "validation"]
     input_dir = Path(args.input_dir)
     output_dir = Path(args.output_dir)
 

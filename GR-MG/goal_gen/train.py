@@ -163,7 +163,7 @@ def experiment(variant):
         center_crop=False,
         forward_n_min_max=[5, 5],
         use_full=False,
-        is_training=True,
+        split_type="training",
         color_aug=True,
     )
     val_data = RobotTwinDataset_Goalgen(
@@ -174,7 +174,7 @@ def experiment(variant):
         center_crop=False,
         forward_n_min_max=[5, 5],
         use_full=False,
-        is_training=False,
+        split_type="validation",
         color_aug=False,
     )
     train_dataloader = DataLoader(

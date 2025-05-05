@@ -1,0 +1,12 @@
+{
+    "exp_name": "evaluate_goal_gen",
+    "seed": 42,
+    "device": "cuda",
+    "pretrained_model_dir": "/app/resources/instruct-pix2pix",
+    "encoder_dir": "/app/resources/t5-base",
+    "ori_data_dir": "/app/data/RoboTwin_output",
+    "data_dir": "/app/data/RoboTwin_format",
+    "result_root": "/app/results/goal_gen/results",
+    "ckpt_path": "/app/results/goal_gen/checkpoints/train_goal_gen/2025-05-05_01-26-42/best-epoch=19.ckpt",
+    "resolution": 256
+}

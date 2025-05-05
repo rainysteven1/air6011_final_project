@@ -1,0 +1,12 @@
+{
+    "exp_name": "evaluate_goal_gen",
+    "seed": 42,
+    "device": "cuda",
+    "pretrained_model_dir": "/home/user/rainy/AIR6011/FinalProject/resources/instruct-pix2pix",
+    "encoder_dir": "/home/user/rainy/AIR6011/FinalProject/resources/t5-base",
+    "ori_data_dir": "/data/FinalProject/RoboTwin_output",
+    "data_dir": "/data/FinalProject/RoboTwin_format",
+    "result_root": "/data/FinalProject/results/goal_gen/results",
+    "ckpt_path": "/data/FinalProject/results/goal_gen/checkpoints/train_goal_gen/2025-05-05_01-26-42/best-epoch=19.ckpt",
+    "resolution": 256
+}
